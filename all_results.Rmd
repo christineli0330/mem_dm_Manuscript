@@ -1,0 +1,493 @@
+---
+title: "mem_dm_results"
+author: "Xinyue Li"
+date: "9/5/2021"
+output: html_document
+---
+
+## General Setup
+
+```{r setup, warning=FALSE, echo=FALSE}
+library(tidyverse)
+library(dplyr)
+library(lme4)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(sjPlot)
+library(sjmisc)
+library(Hmisc)
+#library(plyr)
+library(RColorBrewer)
+library(reshape2)
+library(glmmTMB)
+library(corrplot)
+require(gridExtra)
+
+setwd("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization")
+```
+
+## Experiment 1: Image Memorability (N = 199)
+
+Load image memorability data from **cleaned_all_mem.csv** file.
+
+(This file contains calculated memorability for images and words, as well as ResMem, HR, FAR. The original data can be found in **memorability_raw_full.csv** and **word_mem_full.csv** in the [raw data] folder respectively for image and word measurements.)
+
+Participants who failed to have at least 3 correct hit and 3 correct reject were excluded.
+
+```{r exp1_load}
+mem = read.csv("C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/cleaned_all_mem.csv")
+```
+
+Load memorabilirty scores and data from file **stimchar_final_touse.csv** from Columbia Center for Eating Disorders (Lloyd et al., 2020).
+
+Selected participants ages between 18-35, and calculated item-level average value for tasty and choice preference.
+
+```{r exp1_load2}
+food = read.csv("C:/Users/Christine/Box Sync/data/mem_dm_all_results/raw data/stimchar_final_touse.csv") %>% filter(age == "18-25" | age == "26-30" | age == "31-35") 
+```
+
+
+### Distribution of memorability
+
+Plot the distribution of image memorability scores. The vertical line represents for the median of memorability scores = 0.48
+
+The lowest one is **saltine crackers**, and the highest one is **sliced pizza**
+
+```{r exp1_scatter}
+## ggplot histogram
+ggplot(mem, aes(x=Memorability)) + 
+  geom_histogram(color="steelblue", fill="white", bins = 25) + 
+  geom_vline(xintercept = 0.48,linetype = "dashed") +
+  theme_classic()
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/hist_image.png', width = 7, height = 4, units = 'in')
+```
+
+
+### Correlation matrix
+
+Plot for correlation matrix between 17 ratings and image memorbaility.
+**tasty, other tasty, feel, familiar** are positively related to image memorability.
+
+```{r corrMatrix, echo=FALSE, out.width = "600px"}
+rdat = food %>% dplyr::select(stimulus, choice.rating, starts_with("rating"))
+colnames(rdat) = sub("rating[.]", "", colnames(rdat))
+colnames(rdat) = sub("[.]rating", "", colnames(rdat))
+
+rmat = as.matrix(rdat[,-1])
+rownames(rmat) = rdat$stimulus
+rmat.nochoice = rmat[,-1]
+
+new.ord = c("tasty", "othertasty", "feel", "texture", "disgusting", "familiar", "filling", "healthy", "sweetsaltysavory", "calories", "carbohydrates", "fat", "vitamins", "gluten", "sodium", "sugar", "protein", "stimulus")
+
+
+# correlation matrix with memorability score
+ave.mat.r = rdat[,new.ord] %>% 
+  group_by(stimulus) %>% 
+  summarise_all(mean) 
+# matching memorability stimulus name to food data stimulus name
+ave.mat.r = data.frame(Memorability = mem$Memorability, mem.stimulus = mem$X, ave.mat.r)
+
+M.mem = ave.mat.r %>% dplyr::select(-mem.stimulus, -stimulus) %>% cor()
+diag(M.mem) = 0
+png(height=800, width=800, file="C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/corr.png", type = "cairo")
+corrplot(M.mem, method="circle", diag = F, #order="hclust", 
+         #is.corr=F, cl.lim=c(-0.85,0.85), 
+         col=rev(colorRampPalette(brewer.pal(n=11, name="RdBu"))(256)),
+         tl.col='black',
+         #tl.cex=1.2,
+         addCoef.col="grey35",
+         type = "upper")
+
+dev.off()
+
+knitr::include_graphics("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/corr.png")
+```
+
+### Correlation with tastiness
+
+Duplicate code from manuscript (Lloyd et al., 2020)
+
+Performed factor analysis of the ratings from the manuscript, and ran multiple regression to see if memorability scores can be predicted by the 3 factors (Tastiness, Healthiness, Sweet and savory).
+
+```{r sactter, warning=FALSE}
+# factor analysis
+nFactors::nCng(as.data.frame(rmat.nochoice), model="factors") 
+fit <- factanal(rmat.nochoice, 3, scores="regression")
+
+scores3 <- fit$scores
+ind1 <- which.max(fit$loadings[rownames(fit$loadings) == "unhealthy",])
+ind2 <- which.max(fit$loadings[rownames(fit$loadings) == "tasty",])
+ind3 <- which.max(fit$loadings[rownames(fit$loadings) == "sweetsaltysavory",])
+colnames(scores3) <- c("Food.UnHealth", "Food.Taste", "Food.SweetProtein")
+outdf <- data.frame(subjectId=food$subjectId, stimulus=food$stimulus, scores3)
+
+# score of factor for each food item
+ave.factor = outdf %>% group_by(stimulus) %>% 
+  summarise_all(mean) 
+
+# add mem score to the factor data frame
+labels = sapply(mem$stimulus, function(x) which(ave.factor$stimulus == x))
+ave.factor.mem = data.frame(Memorability = mem$Memorability, mem.stimulus = mem$X, ave.factor)
+
+```
+
+Result showed that only **tastiness** factor can predict the variances in memorability scores (p = 0.004)
+
+```{r}
+# perform linear regression
+fit1 = lm(Memorability ~ Food.Taste + Food.UnHealth + Food.SweetProtein, data = ave.factor.mem)
+summary(fit1)
+```
+
+Scatter plot for memorability scores and averaged tastiness score for the factor analysis on each food item (p = 0.004). 
+
+```{r, warning=FALSE}
+# plot mem~food.taste
+ave.factor.mem %>% ggplot(aes(x = Food.Taste, y = Memorability))+
+  geom_point(size = 3, alpha = 0.5, color = "steelblue3", fill = "steelblue")+
+  geom_smooth(method='lm', color = 'black')+
+  xlab('Tastiness')+
+  theme_classic()+
+  geom_label(
+    label="R^2 = 0.07\np = 0.004  ", 
+    x=-1.25,
+    y=0.1,
+    label.padding = unit(0.55, "lines"), # Rectangle size around label
+    label.size = 0.35,
+    color = "black",
+    fill="white"
+  )
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/scatter.png', width = 5, height = 4, units = 'in')
+```
+
+
+## Experiment 2: Image Choice Task (N = 44)
+
+Load the cleaned choice trials and rating trials from **cleaned_choice.csv** and **cleaned_rating.csv** in the [image] folder. The raw data is saved as **full_data_image_dm.csv**
+
+
+The original data excluded participants who:
+
+1. tended to choose left or right items disproportionately
+
+2. average RT was less than 300 ms in more than half of the trials
+
+3. had negative parameter estimates or non-significant effect of ΔValues on choices (beta)
+
+```{r, exp2_load}
+## Setup for exp2
+#loading data files
+choice = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/image/cleaned_choice.csv')
+rating = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/image/cleaned_rating.csv')
+```
+
+z-scored image values for each participant, and calculated delta z-scored values for each choice trial
+
+```{r, exp2_pre}
+## z-score values for each subject
+#calculate z scores within each ID
+rating.merge = rating[c('ID', 'z', 'image')]
+rating.merge.l = rating.merge %>% rename(stim_left = image)
+rating.merge.r = rating.merge %>% rename(stim_right = image)
+
+#merge columns based on ID and stimuli names
+choice.z = merge(rating.merge.l, choice, by = c('ID', 'stim_left')) %>%
+  rename(z.value.l = z)
+choice.z = merge(rating.merge.r, choice.z, by = c('ID', 'stim_right')) %>% 
+  rename(z.value.r = z)
+choice.z = choice.z %>% mutate(z.delta.value = z.value.r - z.value.l)
+
+```
+
+### Image choice ~ value * image memorability
+
+Run multiple regression model of Image choice ~ value * image memorability with random effects.
+
+No effect found for memorability.
+
+```{r}
+# generate the model
+# m1 = glmer(choseright~1+delta.mem*z.delta.value+(1+delta.mem*z.delta.value|ID), 
+#            data = choice.z, family = "binomial",
+#            glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
+# save(m1, file="C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m1_imageChoiceMem.RData")
+
+load("C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m1_imageChoiceMem.RData")
+summary(m1)
+#plot_model(m1)
+#plt.value = plot_model(m1, type = "pred", terms="z.delta.value [all]")
+#plt.mem = plot_model(m1, type = "pred", terms="z.delta.mem [all]")
+
+#confint(m1)
+```
+
+### RT ~ absolute delta mememorability * absolute delta value
+
+No effect found for memorability on RT
+
+Only z-scored delta value able to predict RT, where higher value results in lower RT.
+
+```{r, out.width = "600px"}
+## model for RT
+choice.z = choice.z %>% mutate(abs.delta.v.z = abs(z.delta.value))
+# m2 = lmer(log(rt)~1+abs(delta.mem)*abs.delta.v.z+(1+abs(delta.mem)*abs.delta.v.z|ID), 
+#            data = choice.z)
+# 
+# save(m2, file="C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m2_imageRTMem.RData")
+
+load("C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m2_imageRTMem.RData")
+summary(m2)
+#plot_model(m2)
+#confint(m3,method="Wald")
+
+knitr::include_graphics("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/mem.png")
+knitr::include_graphics("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/value.png")
+```
+
+## Experiment 3: Word Memorability (N = 199)
+
+Followed same exclusion criteria as the image version.
+
+### Distribution of word memorability
+
+Plot the distribution of image memorability scores. The vertical line represents for the median of memorability scores = 0.19
+
+The lowest one is **skittles**, and the highest one is **omelet**
+
+```{r}
+## ggplot histogram
+ggplot(mem['word.mem'], aes(x=word.mem)) + 
+  geom_histogram(color="steelblue", fill="white", bins = 25) + 
+  geom_vline(xintercept = 0.19,linetype = "dashed") +
+  theme_classic()
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/hist_word.png', width = 7, height = 4, units = 'in')
+```
+
+## Experiment 4: Word Choice Task (N = 44)
+
+Load the cleaned choice trials and rating trials from **cleaned_choice.csv** and **cleaned_rating.csv**
+
+The cleaned data applied the same exclusion criteria, and the original full data can be found at **full_word_choice.csv**
+
+```{r}
+## load word choice data
+rating = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/word/cleaned_rating.csv')
+choice = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/word/cleaned_choice.csv')
+
+#calculate mean values for each stimuli
+values = rating %>% dplyr::group_by(word) %>% dplyr::summarise(value = mean(as.numeric(response)))
+#combine mean values with mem measures
+values_mem = merge(values, mem, by.x = 'word', by.y = "food.item.e", sort = TRUE)
+```
+
+
+### Model for choice behavior
+Fitted mixted effects model for delta memorability and delta value, and found no effect of delta word_mem, but strong effect of delta value for predicting the behavior (same as image memorability)
+
+```{r, warning = FALSE}
+#mixted effects model for delta mem and delta value
+# m3 = glmer(choseright~1+delta.mem*delta.value+(1+delta.mem*delta.value|ID), data = choice, family = "binomial")
+# save(m3, file="C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m3_wordChoiceMem.RData")
+
+load("C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m3_wordChoiceMem.RData")
+summary(m3)
+
+#plot_model(m3, type = "pred")
+```
+
+
+### Model for RT
+
+RT ~ delta.mem*absolute.delta.value.z with mixed effects
+Only z scored delta value able to predict RT, where higher value results in lower RT.
+
+```{r}
+## model for RT
+# choice = choice %>% mutate(abs.delta.v.z = abs(z.delta.value))
+# m4 = lmer(log(rt)~1+abs(delta.mem)*abs.delta.v.z+(1+abs(delta.mem)*abs.delta.v.z|ID), 
+#            data = choice)
+# save(m4, file="C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m4_wordRTMem.RData")
+
+load("C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m4_wordRTMem.RData")
+summary(m4)
+
+
+#confint(m4,method="Wald")
+```
+
+### Correlations between value and memorability for image/words
+
+There's significant correlation between averaged word value and image memorability (p = 0.03)
+
+```{r, warning = FALSE}
+# correlation between rated value in word choices and image memorability
+cor.test(x = values_mem$value, y = values_mem$Memorability)
+
+# plot the correlation
+p.scatter.value.mem = values_mem %>% ggplot(aes(x = value, y = Memorability)) +
+  geom_point() +
+  geom_smooth(method = 'lm') +
+  xlab("Averaged value of words")+
+  ylab("Image memorability") +
+  theme_classic()
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/p.scatter.value.mem.png', height = 5, width = 6)
+knitr::include_graphics("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/p.scatter.value.mem.png")
+```
+
+
+However, there is no correlation between word memorability and averaged word values (p = 0.53)
+
+```{r}
+# correlation between rated value in word choices and word memorability
+cor.test(x = values_mem$value, y = values_mem$word.mem)
+
+# plot the correlation
+p.scatter.value.word = values_mem %>% ggplot(aes(x = value, y = word.mem)) +
+  geom_point() +
+  geom_smooth(method = 'lm') +
+  xlab("Averaged value of words")+
+  ylab("Word memorability") +
+  theme_classic()
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/p.scatter.value.word.png', height = 5, width = 6)
+knitr::include_graphics("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/p.scatter.value.word.png")
+```
+
+
+### Image mem and word choices
+
+There's a significant positive relation between word choices and image memorability (p = 0.01), even after the value of words are controlled.
+
+`How to understand this result?`
+
+```{r}
+## Try to calculate image mem and choice behavior
+choice.im = merge(choice, mem[c('food.item.e', 'Memorability')], by.x = "stim_left", by.y = "food.item.e") %>% rename(image.m.l = Memorability)
+choice.im = merge(choice.im, mem[c('food.item.e', 'Memorability')], by.x = "stim_right", by.y = "food.item.e") %>% rename(image.m.r = Memorability) %>% mutate(delta.im.mem = image.m.r - image.m.l)
+
+#mixted effects model for delta mem and delta value
+# m3 = glmer(choseright~1+delta.im.mem*delta.value+(1+delta.im.mem*delta.value|ID), data = choice.rep, family = "binomial")
+# summary(m3)
+# 
+# save(m3, file="C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m3_imagemem_wordvalue.RData")
+
+load("C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m3_imagemem_wordvalue.RData")
+summary(m3)
+plot_model(m3, type = "pred")
+```
+
+## Experiment 5: Representativeness of Image
+
+Item-level Representativeness data can be accessed at **rep-mean.csv**
+
+Original data is saved in file **rep-task.csv** (N = 40)
+
+
+```{r}
+# load rep data
+rep = read.csv('C:/Users/Christine/Box Sync/data//mem_dm_all_results/cleaned data/rep-mean.csv') %>% select(-X, -n)
+mem = merge(rep, mem, by.x = "word", by.y = "food.item.e")
+```
+
+### Averaged data for each image
+
+```{r}
+  hist(mem$rep.z, breaks = 20, main = paste("Distribution of Rep data"))
+```
+
+### Correlations
+
+No correlation between word or image memorability and the rep data
+
+```{r}
+# possible correlation between representativeness of images and memorability
+# found not null correlations
+cor.test(mem$rep.z, mem$word.mem)
+
+# no correlation with image memorability
+cor.test(mem$rep.z, mem$Memorability)
+```
+
+Found positive correlation between rep data and tastiness of food images
+
+```{r}
+# positive correlation with tastiness of food images
+cor.test(mem$tasty, mem$rep.z)
+
+mem %>% ggplot(aes(x = rep.z, y = tasty)) +
+  geom_point()+
+  geom_smooth(method = 'lm')
+```
+
+
+### Try to fit in the model
+
+Add the difference of representativeness into the model of word value and image memorability
+
+p of choosing right ~ delta image memorability * delta word value * delta rep (with random effects)
+
+```{r}
+## Merge image rep data to choice task
+choice.rep = merge(choice.im, mem[c('word', 'rep.z')], by.x = "stim_left", by.y = "word") %>% rename(rep.l = rep.z)
+choice.rep = merge(choice.rep, mem[c('word', 'rep.z')], by.x = "stim_right", by.y = "word") %>% rename(rep.r = rep.z) %>% mutate(delta.rep = rep.r - rep.l)
+
+# run regression model for image mem, word value, and representativeness of image
+# m5 = glmer(choseright~1+delta.im.mem*delta.value*delta.rep+(1+delta.im.mem*delta.value*delta.rep|ID),
+#            data = choice.rep, family = "binomial",
+#            glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
+
+load("C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m5_rep.RData")
+summary(m5) 
+
+#save(m5, file="C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m5_rep.RData")
+plot_model(m5, type = "pred")
+
+```
+
+
+### Comparing models
+
+Model with representative data did not perform significantly better than the simpler version
+
+```{r}
+anova(m3, m5)
+```
+
+
+### Correlation Matrix
+
+Generate the full correlation matrix with image/word memorability scores, representativeness data, and food ratings. 
+
+```{r, out.width = "600px"}
+# merge mem data and food rating data
+mem.corr = mem %>% select(rep.z, X, HR.x, FAR.x, HR.y, FAR.y, ResMem, word.mem)
+ave.mat.r.full = merge(ave.mat.r, mem.corr, by.x = "mem.stimulus", by.y = "X") %>% rename(HR.image = HR.x, FAR.image = FAR.x, HR.word = HR.y, FAR.word = FAR.y)
+
+new.ord = c("Memorability", "HR.image", "FAR.image","word.mem", "HR.word", "FAR.word", "ResMem", "rep.z", "tasty", "othertasty", "feel", "texture", "disgusting", "familiar", "filling", "healthy", "sweetsaltysavory", "calories", "carbohydrates", "fat", "vitamins", "gluten", "sodium", "sugar", "protein")
+
+
+# correlation matrix with memorability score
+#ave.mat.r = rdat[,new.ord] %>% 
+
+M.mem.full = ave.mat.r.full[,new.ord] %>% cor()
+diag(M.mem.full) = 0
+png(height=800, width=800, file="C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/corr_full.png", type = "cairo")
+corrplot(M.mem.full, method="circle", diag = F, #order="hclust", 
+         #is.corr=F, cl.lim=c(-0.85,0.85), 
+         col=rev(colorRampPalette(brewer.pal(n=11, name="RdBu"))(256)),
+         tl.col='black',
+         #tl.cex=1.2,
+         addCoef.col="grey35",
+         type = "upper")
+
+dev.off()
+
+knitr::include_graphics("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/corr_full.png")
+```
+
+
