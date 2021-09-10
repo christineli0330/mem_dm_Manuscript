@@ -1,5 +1,5 @@
 ---
-title: "mem_dm_results"
+title: "Main Results for Memorability and Value-based Decisions"
 author: "Xinyue Li"
 date: "9/5/2021"
 output: html_document
@@ -7,7 +7,7 @@ output: html_document
 
 ## General Setup
 
-```{r setup, warning=FALSE, echo=FALSE}
+```{r setup, warning=FALSE, message = FALSE}
 library(tidyverse)
 library(dplyr)
 library(lme4)
@@ -70,7 +70,7 @@ ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/hist_i
 Plot for correlation matrix between 17 ratings and image memorbaility.
 **tasty, other tasty, feel, familiar** are positively related to image memorability.
 
-```{r corrMatrix, echo=FALSE, out.width = "600px"}
+```{r corrMatrix, out.width = "600px", message = FALSE}
 rdat = food %>% dplyr::select(stimulus, choice.rating, starts_with("rating"))
 colnames(rdat) = sub("rating[.]", "", colnames(rdat))
 colnames(rdat) = sub("[.]rating", "", colnames(rdat))
@@ -397,7 +397,7 @@ mem = merge(rep, mem, by.x = "word", by.y = "food.item.e")
 ### Averaged data for each image
 
 ```{r}
-  hist(mem$rep.z, breaks = 20, main = paste("Distribution of Rep data"))
+  hist(mem$rep.z, breaks = 20, main = paste("Distribution of Rep data"), xlab = "Representativeness")
 ```
 
 ### Correlations
@@ -421,7 +421,8 @@ cor.test(mem$tasty, mem$rep.z)
 
 mem %>% ggplot(aes(x = rep.z, y = tasty)) +
   geom_point()+
-  geom_smooth(method = 'lm')
+  geom_smooth(method = 'lm')+
+  xlab("z-scored representativeness")
 ```
 
 
