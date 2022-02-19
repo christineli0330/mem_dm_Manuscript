@@ -182,6 +182,11 @@ The original data excluded participants who:
 #loading data files
 choice = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/image/cleaned_choice.csv')
 rating = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/image/cleaned_rating.csv')
+
+#calculate mean values for each stimuli
+values = rating %>% dplyr::group_by(image) %>% dplyr::summarise(value = mean(as.numeric(response)))%>% mutate(item = substring(image, 54))
+#combine mean values with mem measures
+values_mem = merge(values, mem, by.x = 'item', by.y = "X", sort = TRUE)
 ```
 
 z-scored image values for each participant, and calculated delta z-scored values for each choice trial
@@ -222,6 +227,8 @@ summary(m1)
 #plt.mem = plot_model(m1, type = "pred", terms="z.delta.mem [all]")
 
 #confint(m1)
+library(broom.mixed)
+tidy(m1,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
 ```
 
 ### RT ~ absolute delta mememorability * absolute delta value
@@ -280,6 +287,7 @@ choice = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned d
 
 #calculate mean values for each stimuli
 values = rating %>% dplyr::group_by(word) %>% dplyr::summarise(value = mean(as.numeric(response)))
+
 #combine mean values with mem measures
 values_mem = merge(values, mem, by.x = 'word', by.y = "food.item.e", sort = TRUE)
 ```
@@ -297,6 +305,13 @@ load("C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m3_wordChoiceMe
 summary(m3)
 
 #plot_model(m3, type = "pred")
+confint(m3)
+
+library(broom.mixed)
+tidy(m3,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+
+#exp(fixef(m3))
+exp(confint(m3))
 ```
 
 
@@ -315,8 +330,13 @@ Only z scored delta value able to predict RT, where higher value results in lowe
 load("C:/Users/Christine/Box Sync/data/mem_dm_all_results/models/m4_wordRTMem.RData")
 summary(m4)
 
+confint(m4,method="Wald")
 
-#confint(m4,method="Wald")
+tidy(m4,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+
+coefs <- data.frame(coef(summary(m4)))
+# use normal distribution to approximate p-value
+coefs$p.z <- 2 * (1 - pnorm(abs(coefs$t.value)))
 ```
 
 ### Correlations between value and memorability for image/words
@@ -392,6 +412,11 @@ Original data is saved in file **rep-task.csv** (N = 40)
 # load rep data
 rep = read.csv('C:/Users/Christine/Box Sync/data//mem_dm_all_results/cleaned data/rep-mean.csv') %>% select(-X, -n)
 mem = merge(rep, mem, by.x = "word", by.y = "food.item.e")
+values_mem = merge(rep, values_mem, by = "word")
+
+# no correlation between word values and rep data
+cor.test(values_mem$value, values_mem$rep.z)
+
 ```
 
 ### Averaged data for each image
@@ -489,6 +514,10 @@ corrplot(M.mem.full, method="circle", diag = F, #order="hclust",
 dev.off()
 
 knitr::include_graphics("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/corr_full.png")
+
+# Spearman correlation of HR for image and resmem
+cor.test(mem$HR.x, mem$ResMem, method = "spearman")
+
 ```
 
 

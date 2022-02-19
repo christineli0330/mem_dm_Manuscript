@@ -1,0 +1,839 @@
+---
+title: "Visualization for mem-dm Manuscript - updated version"
+author: "Xinyue Li"
+date: "10/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(lme4)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(sjPlot)
+library(sjmisc)
+library(Hmisc)
+#library(plyr)
+library(RColorBrewer)
+library(reshape2)
+library(glmmTMB)
+library(corrplot)
+library(ggpubr)
+require(gridExtra)
+
+setwd("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization")
+mem = read.csv("C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/cleaned_all_mem.csv")
+food = read.csv("C:/Users/Christine/Box Sync/data/mem_dm_all_results/raw data/stimchar_final_touse.csv") %>% filter(age == "18-25" | age == "26-30" | age == "31-35") 
+choice = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/image/cleaned_choice.csv')
+rating = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/image/cleaned_rating.csv')
+rep = read.csv('C:/Users/Christine/Box Sync/data//mem_dm_all_results/cleaned data/rep-mean.csv') %>% select(-X, -n)
+mem = merge(rep, mem, by.x = "word", by.y = "food.item.e")
+
+## z-score values for each subject
+#calculate z scores within each ID
+rating.merge = rating[c('ID', 'z', 'image')]
+rating.merge.l = rating.merge %>% dplyr::rename(stim_left = image)
+rating.merge.r = rating.merge %>% dplyr::rename(stim_right = image)
+
+#merge columns based on ID and stimuli names
+choice.z = merge(rating.merge.l, choice, by = c('ID', 'stim_left')) %>%
+  dplyr::rename(z.value.l = z)
+choice.z = merge(rating.merge.r, choice.z, by = c('ID', 'stim_right')) %>% 
+  dplyr::rename(z.value.r = z)
+choice.z = choice.z %>% mutate(z.delta.value = z.value.r - z.value.l)
+#calculate abs z delta value
+choice.z = choice.z %>% mutate(abs.delta.v.z = abs(z.delta.value),
+                               chosehigh.value = case_when(choseright == 1 & delta.value >=0 ~ 1, choseright == 0 & delta.value <0 ~ 1, choseright == 1 & delta.value <0 ~ 0,choseright == 0 & delta.value >=0 ~ 0 ))
+
+```
+
+## Experiment 1A
+
+Will add images for extreme foods
+
+```{r scatter}
+## ggplot histogram
+hist.im = ggplot(mem, aes(x=Memorability)) + 
+  geom_histogram(color="steelblue", fill="white", bins = 25) + 
+  geom_vline(xintercept = 0.48,linetype = "dashed") +
+  theme_classic(base_size = 26)
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/hist.png', width = 8, height = 6, units = 'in')
+```
+
+
+
+### Scatter plot (maybe Supplement)
+
+Figure 3. Scatter plot for memorability scores and averaged tastiness score for the factor analysis on each food item.  
+Will add images for the extreme food items
+
+```{r sactter, warning=FALSE}
+# factor analysis
+rdat = food %>% dplyr::select(stimulus, choice.rating, starts_with("rating"))
+colnames(rdat) = sub("rating[.]", "", colnames(rdat))
+colnames(rdat) = sub("[.]rating", "", colnames(rdat))
+
+rmat = as.matrix(rdat[,-1])
+rownames(rmat) = rdat$stimulus
+rmat.nochoice = rmat[,-1]
+
+nFactors::nCng(as.data.frame(rmat.nochoice), model="factors") 
+fit <- factanal(rmat.nochoice, 3, scores="regression")
+
+scores3 <- fit$scores
+ind1 <- which.max(fit$loadings[rownames(fit$loadings) == "unhealthy",])
+ind2 <- which.max(fit$loadings[rownames(fit$loadings) == "tasty",])
+ind3 <- which.max(fit$loadings[rownames(fit$loadings) == "sweetsaltysavory",])
+colnames(scores3) <- c("Food.UnHealth", "Food.Taste", "Food.SweetProtein")
+outdf <- data.frame(subjectId=food$subjectId, stimulus=food$stimulus, scores3)
+
+# score of factor for each food item
+ave.factor = outdf %>% group_by(stimulus) %>% 
+  summarise_all(mean) 
+
+# add mem score to the factor data frame
+ave.factor.mem = merge(ave.factor, mem, by = "stimulus")
+
+# perform linear regression
+fit1 = lm(Memorability ~ Food.Taste + Food.UnHealth + Food.SweetProtein, data = ave.factor.mem)
+summary(fit1)
+
+# plot mem~food.taste
+ave.factor.mem %>% ggplot(aes(x = Food.Taste, y = Memorability))+
+  geom_point(size = 3, alpha = 0.5, color = "steelblue3", fill = "steelblue")+
+  geom_smooth(method='lm', color = 'black')+
+  xlab('Tastiness')+
+  theme_classic()+
+  geom_label(
+    label="R^2 = 0.07\np = 0.004  ", 
+    x=-1.25,
+    y=0.1,
+    label.padding = unit(0.55, "lines"), # Rectangle size around label
+    label.size = 0.35,
+    color = "black",
+    fill="white"
+  )
+
+ggsave('scatter.png', width = 5, height = 4, units = 'in')
+
+```
+
+## Experiment 1B  
+
+
+```{r}
+#plot abs delta mem
+g.deltaMem = choice %>% ggplot(aes(x = abs.mem, fill=..count..))+
+  geom_histogram(binwidth = 0.05, show.legend = FALSE)+
+  xlim(0,0.8)+
+  xlab("|Δmem|")+
+  theme_classic(base_size = 12)
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/delta_mem_word_s1.png', height = 3, width = 5)
+
+g.deltaMem
+```
+
+
+### choice ~ image value with only trials that have low delta memorability
+
+```{r}
+#filter data
+# trials = 2939
+choice.z = choice.z %>% 
+  arrange(ID, abs.mem) %>% 
+  group_by(ID) %>% 
+  dplyr::mutate(rank = 1:n()) %>% 
+  dplyr::mutate(median = median(rank)) %>%
+  ungroup()
+choice.low.m = choice.z %>% filter(rank <= median)
+
+#generate the model
+m.i.v = glmer(chosehigh.value~1+abs.delta.v.z+(1+abs.delta.v.z|ID), 
+           data = choice.low.m, family = "binomial")
+plt.value.c = plot_model(m.i.v, type = "pred", terms="abs.delta.v.z [all]")
+
+library(broom.mixed)
+tidy(m.i.v,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+```
+
+
+```{r}
+library(ggeffects)
+p1 <- ggpredict(m.i.v, terms = "abs.delta.v.z [all]") 
+
+p <- ggplot(p1, aes(x = x, y = predicted)) + geom_line(show.legend = FALSE) + 
+  geom_ribbon(aes(ymin = p1$conf.low, ymax = p1$conf.high),alpha = 0.3, linetype =1, show.legend = FALSE) + theme_classic() #+ ylim(0.4, 1.0) + xlim(0,3) 
+
+#calculate mean/sd for each actual data point - removing delta value = 0
+choice.v.plt <- choice.low.m %>% 
+  filter(delta.value != 0) %>%
+  #dplyr::group_by(ID) %>%
+  mutate(bin.value=ntile(abs.delta.v.z, 5))
+#for abs.delta.value
+choice.plt.ppl = choice.v.plt %>% group_by(bin.value, ID) %>%
+  summarise_at(vars(abs.delta.v.z, chosehigh.value), list(mean = mean))
+choice.plt.df = choice.plt.ppl %>% group_by(bin.value) %>%
+  summarise_at(vars(abs.delta.v.z_mean, chosehigh.value_mean), list(mean = mean, sd = sd))
+
+# calculate the lower and upper limits based on 1 standard error from the mean - divide sd by sqrt of 70 (approx number of subjs in each quintile)
+choice.plt.df$lowSE <- choice.plt.df$chosehigh.value_mean_mean - (choice.plt.df$chosehigh.value_mean_sd)/sqrt(44)
+choice.plt.df$highSE <- choice.plt.df$chosehigh.value_mean_mean + (choice.plt.df$chosehigh.value_mean_sd)/sqrt(44)
+
+p = p + 
+  geom_pointrange(data = choice.plt.df, aes(x = abs.delta.v.z_mean_mean, y = chosehigh.value_mean_mean, ymin = lowSE, ymax = highSE), show.legend = FALSE)+
+  xlab("|Δvalue|") + 
+  ylab("P (choose higher value)") + xlim(-0.1, 3) + ylim(0.35,1)
+
+p
+```
+
+### RT ~ Value  
+
+```{r}
+m3.value = lmer(rt ~ abs.delta.v.z + (abs.delta.v.z|ID), 
+           data = choice.low.m)
+
+m3.value.log = lmer(log(rt) ~ abs.delta.v.z + (abs.delta.v.z|ID), 
+           data = choice.low.m)
+
+# calculate coefficient for RT model
+confint(m3.value.log,method="Wald")
+
+tidy(m3.value,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+
+coefs <- data.frame(coef(summary(m3.value.log)))
+# use normal distribution to approximate p-value
+coefs$p.z <- 2 * (1 - pnorm(abs(coefs$t.value)))
+
+#plot data
+p3 <- ggpredict(m3.value, terms = "abs.delta.v.z") 
+
+p.rt.v <- ggplot(p3, aes(x = x, y = predicted)) + geom_line(show.legend = FALSE) + 
+  geom_ribbon(aes(ymin = p3$conf.low, ymax = p3$conf.high),alpha = 0.3, linetype =1, show.legend = FALSE) + theme_classic() + xlim(0,3) 
+
+#calculate mean/sd for each actual data point
+
+#for abs.delta.value
+choice.plt.ppl = choice.v.plt %>% group_by(bin.value, ID) %>%
+  summarise_at(vars(abs.delta.v.z, chosehigh.value, rt), list(mean = mean))
+choice.plt.df = choice.plt.ppl %>% group_by(bin.value) %>%
+  summarise_at(vars(abs.delta.v.z_mean, chosehigh.value_mean, rt_mean), list(mean=mean, sd = sd))
+
+# calculate the lower and upper limits based on 1 standard error from the mean - divide sd by sqrt of 70 (approx number of subjs in each quintile)
+choice.plt.df$lowSE <- choice.plt.df$rt_mean_mean - (choice.plt.df$rt_mean_sd)/sqrt(44)
+choice.plt.df$highSE <- choice.plt.df$rt_mean_mean + (choice.plt.df$rt_mean_sd)/sqrt(44)
+
+p.rt.v.data = p.rt.v + geom_pointrange(data = choice.plt.df, aes(x = abs.delta.v.z_mean_mean, y = rt_mean_mean, ymin = lowSE, ymax = highSE), show.legend = FALSE) + 
+  xlab("|Δvalue|") + ylab("RT") +
+  xlim(-0.1,3)+ylim(1000, 1350)
+
+p.rt.v.data
+```
+
+
+### Choice ~ mem (with half sample)  
+
+Run model with data that delta value ~= 0  
+
+BUT delta mem become significant when it is the only predictor in the model
+
+```{r}
+## filter data into trials that delta value close to 0
+#split trials into high/low delta mem based on within-subject median
+# trials = 2939
+choice.z = choice.z %>% 
+  arrange(ID, abs.delta.v.z) %>% 
+  group_by(ID) %>% 
+  dplyr::mutate(rank.v = 1:n()) %>%
+  dplyr::mutate(median.v = median(rank.v)) %>%
+  ungroup()
+choice.low.v = choice.z %>% filter(rank.v <= median.v)
+
+# generate the model
+m.i.m = glmer(chosehigh.mem~1+abs.mem+(1+abs.mem|ID),
+           data = choice.low.v, family = "binomial",
+           glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
+summary(m.i.m)
+
+#calculate coefficient
+tidy(m.i.m,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+
+p2 <- ggpredict(m.i.m, terms = "abs.mem [all]") 
+
+p.mem.choice <- ggplot(p2, aes(x = x, y = predicted)) + geom_line(show.legend = FALSE) + 
+  geom_ribbon(aes(ymin = p2$conf.low, ymax = p2$conf.high),alpha = 0.3, linetype =1, show.legend = FALSE) + theme_classic() 
+#+ ylim(0.4, 1.2) + xlim(-0.1,3) 
+
+p.mem.choice = p.mem.choice + scale_y_continuous(limits = c(0,1)) +
+  xlab("Delta Memorability") +
+  scale_y_continuous(limits = c(0.35,1))+
+  scale_x_continuous(limits = c(0,0.4))
+
+#calculate mean/sd for each actual data point
+choice.m.plt <- choice.low.v %>% 
+  dplyr::group_by(ID) %>%
+  mutate(bin.mem=ntile(abs.mem, 5))
+#for abs.delta.value
+choice.plt.mem.ppl = choice.m.plt %>% group_by(bin.mem, ID) %>%
+  summarise_at(vars(abs.mem, chosehigh.mem, rt), list(mean = mean))
+choice.plt.mem.df = choice.plt.mem.ppl %>% group_by(bin.mem) %>%
+  summarize_at(vars(abs.mem_mean, chosehigh.mem_mean, rt_mean), list(mean=mean, sd = sd))
+
+# calculate the lower and upper limits based on 1 standard error from the mean - divide sd by sqrt of 70 (approx number of subjs in each quintile)
+choice.plt.mem.df$lowSE <- choice.plt.mem.df$chosehigh.mem_mean_mean - (choice.plt.mem.df$chosehigh.mem_mean_sd)/sqrt(44)
+choice.plt.mem.df$highSE <- choice.plt.mem.df$chosehigh.mem_mean_mean + (choice.plt.mem.df$chosehigh.mem_mean_sd)/sqrt(44)
+
+p.mem.choice = p.mem.choice + geom_pointrange(data = choice.plt.mem.df, aes(x = abs.mem_mean_mean, y = chosehigh.mem_mean_mean, ymin = lowSE, ymax = highSE), show.legend = FALSE) + 
+  xlab("|Δmem|") + ylab("P (choose more memorable)")+ xlim(0,0.5)
+
+p.mem.choice
+```
+
+
+## for trials that made the right choice
+
+# Still working on it
+
+```{r}
+########
+#don't use it#
+########
+choice.low.v.higher.mem = choice.low.v %>% filter(chosehigh.mem == 1)
+
+#m.i.m.h = glmer(choseright~1+delta.mem+(1+delta.mem|ID),
+#           data = choice.low.v.higher.mem, family = "binomial")
+#summary(m.i.m.h)
+
+#calculate coefficient
+tidy(m.i.m,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+
+p2 <- ggpredict(m.i.m, terms = "abs.mem [all]") 
+
+p.mem.choice <- ggplot(p2, aes(x = x, y = predicted)) + geom_line(show.legend = FALSE) + 
+  geom_ribbon(aes(ymin = p2$conf.low, ymax = p2$conf.high),alpha = 0.3, linetype =1, show.legend = FALSE) + theme_classic() 
+#+ ylim(0.4, 1.2) + xlim(-0.1,3) 
+
+p.mem.choice = p.mem.choice + scale_y_continuous(limits = c(0,1)) +
+  xlab("Delta Memorability") +
+  scale_y_continuous(limits = c(0.35,1))+
+  scale_x_continuous(limits = c(0,0.4))
+
+#calculate mean/sd for each actual data point
+choice.m.plt <- choice.low.v %>% 
+  dplyr::group_by(ID) %>%
+  mutate(bin.mem=ntile(abs.mem, 5))
+#for abs.delta.value
+choice.plt.mem.ppl = choice.m.plt %>% group_by(bin.mem, ID) %>%
+  summarise_at(vars(abs.mem, chosehigh.mem, rt), list(mean = mean))
+choice.plt.mem.df = choice.plt.mem.ppl %>% group_by(bin.mem) %>%
+  summarize_at(vars(abs.mem_mean, chosehigh.mem_mean, rt_mean), list(mean=mean, sd = sd))
+
+# calculate the lower and upper limits based on 1 standard error from the mean - divide sd by sqrt of 70 (approx number of subjs in each quintile)
+choice.plt.mem.df$lowSE <- choice.plt.mem.df$chosehigh.mem_mean_mean - (choice.plt.mem.df$chosehigh.mem_mean_sd)/sqrt(44)
+choice.plt.mem.df$highSE <- choice.plt.mem.df$chosehigh.mem_mean_mean + (choice.plt.mem.df$chosehigh.mem_mean_sd)/sqrt(44)
+
+p.mem.choice = p.mem.choice + geom_pointrange(data = choice.plt.mem.df, aes(x = abs.mem_mean_mean, y = chosehigh.mem_mean_mean, ymin = lowSE, ymax = highSE), show.legend = FALSE) + 
+  xlab("|Δmem|") + ylab("P (choose more memorable)")+ xlim(0,0.5)
+
+p.mem.choice
+
+```
+
+
+
+## for RT vs. mem
+
+```{r}
+m4.value = lmer(rt ~ abs.mem + (abs.mem|ID), 
+           data = choice.m.plt)
+
+m4.value.log = lmer(log(rt) ~ abs.mem + (abs.mem|ID), 
+           data = choice.m.plt)
+
+# calculate coefficient for RT model
+confint(m4.value.log,method="Wald")
+
+tidy(m4.value.log,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+
+coefs <- data.frame(coef(summary(m4.value.log)))
+# use normal distribution to approximate p-value
+coefs$p.z <- 2 * (1 - pnorm(abs(coefs$t.value)))
+
+p4 <- ggpredict(m4.value, terms = "abs.mem") 
+
+p.mem.rt <- ggplot(p4, aes(x = x, y = predicted)) + geom_line(show.legend = FALSE) + 
+  geom_ribbon(aes(ymin = p4$conf.low, ymax = p4$conf.high),alpha = 0.3, linetype =1, show.legend = FALSE) + theme_classic()+ xlim(-0.8,0.8) 
+
+
+p.mem.rt
+
+# calculate the lower and upper limits based on 1 standard error from the mean - divide sd by sqrt of 70 (approx number of subjs in each quintile)
+choice.plt.mem.df$lowSE <- choice.plt.mem.df$rt_mean_mean - (choice.plt.mem.df$rt_mean_sd)/sqrt(44)
+choice.plt.mem.df$highSE <- choice.plt.mem.df$rt_mean_mean + (choice.plt.mem.df$rt_mean_sd)/sqrt(44)
+
+p.mem.rt = p.mem.rt + geom_pointrange(data = choice.plt.mem.df, aes(x = abs.mem_mean_mean, y = rt_mean_mean, ymin = lowSE, ymax = highSE), show.legend = FALSE) + 
+  xlab("|Δmem|") + ylab("RT") + xlim(0,0.5)+ylim(1000, 1350)
+
+p.mem.rt
+
+
+```
+
+
+
+
+
+
+```{r}
+## save the plots separately
+p + theme_classic(base_size = 14)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/im_v.choice_half_single.png', width = 5, height = 3, units = 'in')
+
+p.rt.v.data + theme_classic(base_size = 14)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/im_v.rt_half_single.png', width = 5, height = 3, units = 'in')
+
+p.mem.choice + theme_classic(base_size = 14)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/im_m.choice_half_single.png', width = 5, height = 3, units = 'in')
+
+p.mem.rt + theme_classic(base_size = 14)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/im_m.rt_half_single.png', width = 5, height = 3, units = 'in')
+```
+
+
+
+```{r}
+p = p + 
+  theme(
+  axis.title.x = element_blank(),
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()
+)
+
+p.rt.v.data.crop = p.rt.v.data +
+  theme(axis.title.x = element_text(hjust=0.27))+ 
+  scale_x_continuous(breaks=c(0, 0.5, 1, 1.5, 2, 2.5, 3))
+
+p.image.v = ggarrange(p+ 
+  scale_x_continuous(breaks=c(0, 0.5, 1, 1.5, 2, 2.5, 3))
+  + theme(plot.margin = margin(1,1,0.1,1, "cm")), 
+                      p.rt.v.data.crop, 
+                      nrow = 2, labels = c("A", "B"), 
+                      common.legend = TRUE, legend="bottom", align = "v",
+                      font.label = list(size = 20, color = "black", face = "bold", family = NULL, position = "top"))
+
+p.image.v
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/im_choice_value_crop.png', plot = p.image.v, width = 8, height = 6, units = 'in')
+
+
+## mem images (C&D)
+p.mem.choice  = p.mem.choice + theme(
+  axis.title.x = element_blank(),
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()
+)
+
+p.mem.rt.crop = p.mem.rt +
+  theme(axis.title.x = element_text(hjust=0.27))+ 
+  
+
+p.image.m = ggarrange(p.mem.choice + theme(plot.margin = margin(1,1,0.1,1, "cm")), 
+                      p.mem.rt.crop, 
+                      nrow = 2, labels = c("C", "D"), 
+                      common.legend = TRUE, legend="bottom", align = "v",
+                      font.label = list(size = 20, color = "black", face = "bold", family = NULL, position = "top")) 
+
+p.image.m
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/im_choice_mem_crop.png', plot = p.image.m, width = 8, height = 6, units = 'in')
+
+
+
+p.image = ggarrange(p.image.v, p.image.m, ncol = 2)                 # Labels of the scatter plot) 
+p.image
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/im_choice_half_label.png', plot = , width = 9, height = 6, units = 'in')
+```
+
+## Experiment 2A
+
+### rep data
+
+```{r}
+z = median(mem$rep.z)
+mem = mem %>% mutate(rep.split = case_when(rep.z <= z ~ "low",
+                                           rep.z > z ~ "high"))
+rep.low = mem %>% filter(rep.z <=z)
+rep.high = mem %>% filter(rep.z > z)
+
+p.rep.low = rep.low %>% ggplot(aes(x = word.mem, y = Memorability))+
+  geom_point(size = 3, alpha = 0.5, color = "steelblue3", fill = "steelblue")+
+  geom_smooth(method='lm', color = 'black')+
+  xlab('Word memorability')+
+  ylab('Image memorability')+
+  ggtitle('Low Representativeness')+
+  theme_classic()
+
+p.rep.high = rep.high %>% ggplot(aes(x = word.mem, y = Memorability))+
+  geom_point(size = 3, alpha = 0.5, color = "steelblue3", fill = "steelblue")+
+  geom_smooth(method='lm', color = 'black')+
+  xlab('Word memorability')+
+  ylab('Image memorability')+
+  ggtitle('High Representativeness')+
+  theme_classic()
+  
+p.rep = grid.arrange(p.rep.low, p.rep.high, ncol = 2)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/rep.png', plot = p.rep, width = 8, height = 4, units = 'in')
+
+cor.test(rep.high$word.mem, rep.high$Memorability)
+
+# mean rep for image mem in low vs. high 
+rep.mem = melt(mem, id.vars = c("word", "rep.split"), measure.vars = c("Memorability", "word.mem"))
+rep.mem %>% ggplot(aes(x = variable, y = value, fill = rep.split)) +
+  geom_bar(position = "dodge", stat="summary")
+```   
+
+
+## Experiment 2B
+
+### Distribution of word memorability
+
+Plot the distribution of image memorability scores. The vertical line represents for the median of memorability scores = 0.19
+
+The lowest one is **skittles**, and the highest one is **omelet**
+
+```{r}
+## ggplot histogram
+hist.mem.word = ggplot(mem['word.mem'], aes(x=word.mem)) + 
+  geom_histogram(color="steelblue", fill="white", bins = 25) + 
+  geom_vline(xintercept = 0.19,linetype = "dashed") +
+  theme_classic(base_size = 26)+xlab("Word Memorability")
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/hist_word_m.png', width = 8, height = 6, units = 'in')
+```
+
+### consistency analysis
+
+
+## Experiment 2C
+
+```{r}
+## load word choice data
+rating.w = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/word/cleaned_rating.csv')
+choice.w = read.csv('C:/Users/Christine/Box Sync/data/mem_dm_all_results/cleaned data/word/cleaned_choice.csv') %>% mutate(abs.delta.v.z = abs(z.delta.value))
+
+#calculate z delta mem
+choice.w = choice.w %>% mutate(abs.delta.v.z = abs(z.delta.value),
+                               chosehigh.value = case_when(choseright == 1 & delta.value >=0 ~ 1, choseright == 0 & delta.value <0 ~ 1, choseright == 1 & delta.value <0 ~ 0,choseright == 0 & delta.value >=0 ~ 0 ))
+
+```
+
+### choice ~ word value  
+```{r}
+#filter data
+# trials = 3011
+choice.w = choice.w %>% 
+  arrange(ID, abs.mem) %>% 
+  group_by(ID) %>% 
+  dplyr::mutate(rank = 1:n()) %>% 
+  dplyr::mutate(median = median(rank)) %>%
+  ungroup()
+choice.low.m.w = choice.w %>% filter(rank <= median)
+
+
+#generate the model
+m.w.v = glmer(chosehigh.value~1+abs.delta.v.z+(1+abs.delta.v.z|ID), 
+           data = choice.low.m.w, family = "binomial")
+
+tidy(m.w.v,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+summary(m.w.v)
+```
+
+```{r}
+p1.w <- ggpredict(m.w.v, terms = "abs.delta.v.z [all]") 
+
+p.w <- ggplot(p1, aes(x = x, y = predicted)) + geom_line(show.legend = FALSE) + 
+  geom_ribbon(aes(ymin = p1$conf.low, ymax = p1$conf.high),alpha = 0.3, linetype =1, show.legend = FALSE) + theme_classic() + ylim(0.35, 1.0) + xlim(0,3) 
+
+#calculate mean/sd for each actual data point
+choice.v.plt <- choice.low.m.w %>% 
+  filter(delta.value != 0) %>%
+  #dplyr::group_by(ID) %>%
+  mutate(bin.value=ntile(abs.delta.v.z, 5))
+#for abs.delta.value
+choice.plt.ppl = choice.v.plt %>% group_by(bin.value, ID) %>%
+  summarise_at(vars(abs.delta.v.z, chosehigh.value), list(mean = mean))
+choice.plt.df = choice.plt.ppl %>% group_by(bin.value) %>%
+  summarise_at(vars(abs.delta.v.z_mean, chosehigh.value_mean), list(mean = mean, sd = sd))
+
+# calculate the lower and upper limits based on 1 standard error from the mean - divide sd by sqrt of 70 (approx number of subjs in each quintile)
+choice.plt.df$lowSE <- choice.plt.df$chosehigh.value_mean_mean - (choice.plt.df$chosehigh.value_mean_sd)/sqrt(44)
+choice.plt.df$highSE <- choice.plt.df$chosehigh.value_mean_mean + (choice.plt.df$chosehigh.value_mean_sd)/sqrt(44)
+
+p.w = p.w + geom_pointrange(data = choice.plt.df, aes(x = abs.delta.v.z_mean_mean, y = chosehigh.value_mean_mean, ymin = lowSE, ymax = highSE), show.legend = FALSE)+ xlab(expression(paste("|",Delta*value[word], "|"))) + ylab("P (choose higher value)")
+
+p.w
+
+
+```
+
+```{r}
+
+
+m3.word = lmer(rt ~ abs.delta.v.z + (abs.delta.v.z|ID), 
+           data = choice.low.m.w)
+m3.word.log = lmer(log(rt) ~ abs.delta.v.z + (abs.delta.v.z|ID), 
+           data = choice.low.m.w)
+
+# calculate coefficient for RT model
+confint(m3.word.log,method="Wald")
+
+tidy(m3.word.log,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+
+coefs <- data.frame(coef(summary(m3.word.log)))
+# use normal distribution to approximate p-value
+coefs$p.z <- 2 * (1 - pnorm(abs(coefs$t.value)))
+
+
+p3 <- ggpredict(m3.word, terms = "abs.delta.v.z") 
+
+p.rt.w.v <- ggplot(p3, aes(x = x, y = predicted)) + geom_line(show.legend = FALSE) + 
+  geom_ribbon(aes(ymin = p3$conf.low, ymax = p3$conf.high),alpha = 0.3, linetype =1, show.legend = FALSE) + theme_classic() + xlim(0,3) + ylim(1000, 1500)
+
+#calculate mean/sd for each actual data point
+
+#for abs.delta.value
+choice.plt.ppl = choice.v.plt %>% group_by(bin.value, ID) %>%
+  summarise_at(vars(abs.delta.v.z, chosehigh.value, rt), list(mean = mean))
+choice.plt.df = choice.plt.ppl %>% group_by(bin.value) %>%
+  summarise_at(vars(abs.delta.v.z_mean, chosehigh.value_mean, rt_mean), list(mean=mean, sd = sd))
+
+# calculate the lower and upper limits based on 1 standard error from the mean - divide sd by sqrt of 70 (approx number of subjs in each quintile)
+choice.plt.df$lowSE <- choice.plt.df$rt_mean_mean - (choice.plt.df$rt_mean_sd)/sqrt(44)
+choice.plt.df$highSE <- choice.plt.df$rt_mean_mean + (choice.plt.df$rt_mean_sd)/sqrt(44)
+
+p.rt.w.v = p.rt.w.v + geom_pointrange(data = choice.plt.df, aes(x = abs.delta.v.z_mean_mean, y = rt_mean_mean, ymin = lowSE, ymax = highSE), show.legend = FALSE) + 
+  xlab(expression(paste("|",Delta*value[word], "|"))) + ylab("RT")
+
+p.rt.w.v
+```
+
+
+### choice ~ word mem
+
+```{r}
+## filter data into trials that delta value close to 0
+#split trials into high/low delta mem based on within-subject median
+choice.w = choice.w %>% 
+  arrange(ID, abs.delta.v.z) %>% 
+  group_by(ID) %>% 
+  dplyr::mutate(rank.v = 1:n()) %>% 
+  dplyr::mutate(median.v = median(rank.v)) %>%
+  ungroup()
+choice.low.v.w = choice.w %>% filter(rank.v <= median.v)
+
+# generate the model
+m.w.m = glmer(chosehigh.mem~1+abs.mem+(1+abs.mem|ID),
+           data = choice.low.v.w, family = "binomial",
+           glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
+summary(m.w.m)
+tidy(m.w.m,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+```
+
+```{r}
+p2.w <- ggpredict(m.w.m, terms = "abs.mem [all]") 
+
+p.mem.w.choice <- ggplot(p2.w, aes(x = x, y = predicted)) + geom_line(show.legend = FALSE) + 
+  geom_ribbon(aes(ymin = p2.w$conf.low, ymax = p2.w$conf.high),alpha = 0.3, linetype =1, show.legend = FALSE) + theme_classic() 
+#+ ylim(0.4, 1.2) + xlim(-0.1,3) 
+
+p.mem.w.choice = p.mem.w.choice + scale_y_continuous(limits = c(0,1)) +
+  xlab("Delta Memorability") +
+  scale_y_continuous(limits = c(0.35,1))+
+  scale_x_continuous(limits = c(-0.8,0.8))
+
+#calculate mean/sd for each actual data point
+choice.m.plt <- choice.low.v.w %>% 
+  dplyr::group_by(ID) %>%
+  mutate(bin.mem=ntile(abs.mem, 5))
+#for abs.delta.value
+choice.plt.mem.ppl = choice.m.plt %>% group_by(bin.mem, ID) %>%
+  summarise_at(vars(abs.mem, chosehigh.mem, rt), list(mean = mean))
+choice.plt.mem.df = choice.plt.mem.ppl %>% group_by(bin.mem) %>%
+  summarize_at(vars(abs.mem_mean, chosehigh.mem_mean, rt_mean), list(mean=mean, sd = sd))
+
+# calculate the lower and upper limits based on 1 standard error from the mean - divide sd by sqrt of 70 (approx number of subjs in each quintile)
+choice.plt.mem.df$lowSE <- choice.plt.mem.df$chosehigh.mem_mean_mean - (choice.plt.mem.df$chosehigh.mem_mean_sd)/sqrt(44)
+choice.plt.mem.df$highSE <- choice.plt.mem.df$chosehigh.mem_mean_mean + (choice.plt.mem.df$chosehigh.mem_mean_sd)/sqrt(44)
+
+p.mem.w.choice = p.mem.w.choice + geom_pointrange(data = choice.plt.mem.df, aes(x = abs.mem_mean_mean, y = chosehigh.mem_mean_mean, ymin = lowSE, ymax = highSE), show.legend = FALSE) + 
+  xlab(expression(paste("|",Delta*mem[word], "|"))) + ylab("P (choose more memorable)") + xlim(0,0.5)
+
+p.mem.w.choice
+```
+
+```{r}
+
+m4.value.w = lmer(rt ~ abs.mem + (abs.mem|ID), 
+           data = choice.low.v.w)
+m4.value.w.log = lmer(log(rt) ~ abs.mem + (abs.mem|ID), 
+           data = choice.low.v.w)
+
+# calculate coefficient for RT model
+confint(m4.value.w.log,method="Wald")
+
+tidy(m4.value.w.log,conf.int=TRUE,exponentiate=TRUE,effects="fixed")
+
+coefs <- data.frame(coef(summary(m4.value.w.log)))
+# use normal distribution to approximate p-value
+coefs$p.z <- 2 * (1 - pnorm(abs(coefs$t.value)))
+
+#plot
+p4.w <- ggpredict(m4.value.w, terms = "abs.mem") 
+
+p.mem.w.rt <- ggplot(p4.w, aes(x = x, y = predicted)) + geom_line(show.legend = FALSE) + 
+  geom_ribbon(aes(ymin = p4.w$conf.low, ymax = p4.w$conf.high),alpha = 0.3, linetype =1, show.legend = FALSE) + theme_classic()
+
+
+p.mem.w.rt
+
+# calculate the lower and upper limits based on 1 standard error from the mean - divide sd by sqrt of 70 (approx number of subjs in each quintile)
+choice.plt.mem.df$lowSE <- choice.plt.mem.df$rt_mean_mean - (choice.plt.mem.df$rt_mean_sd)/sqrt(44)
+choice.plt.mem.df$highSE <- choice.plt.mem.df$rt_mean_mean + (choice.plt.mem.df$rt_mean_sd)/sqrt(44)
+
+p.mem.w.rt = p.mem.w.rt + geom_pointrange(data = choice.plt.mem.df, aes(x = abs.mem_mean_mean, y = rt_mean_mean, ymin = lowSE, ymax = highSE), show.legend = FALSE) + 
+  xlab(expression(paste("|",Delta*mem[word], "|"))) + ylab("RT") + xlim(0,0.5) + ylim(1000, 1500)
+
+p.mem.w.rt
+```
+
+
+```{r}
+## save the plots separately
+p.w + theme_classic(base_size = 14)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/w_v.choice_half_single.png', width = 5, height = 3, units = 'in')
+
+p.rt.w.v + theme_classic(base_size = 14)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/w_v.rt_half_single.png', width = 5, height = 3, units = 'in')
+
+p.mem.w.choice + theme_classic(base_size = 14)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/w_m.choice_half_single.png', width = 5, height = 3, units = 'in')
+
+p.mem.w.rt + theme_classic(base_size = 14)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/w_m.rt_half_single_1.png', width = 5, height = 3, units = 'in')
+```
+
+
+
+```{r}
+p.w = p.w +  theme(
+  axis.title.x = element_blank(),
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()
+)
+
+p.word.v = ggarrange(p.w+ theme(plot.margin = margin(1,1,0.1,1, "cm")), 
+                      p.rt.w.v, 
+                      nrow = 2, labels = c("A", "B"), 
+                      common.legend = TRUE, legend="bottom", align = "v",
+                      font.label = list(size = 20, color = "black", face = "bold", family = NULL, position = "top")) 
+
+p.word.v
+
+p.mem.w.choice  = p.mem.w.choice + theme(
+  axis.title.x = element_blank(),
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()
+)
+
+p.word.m = ggarrange(p.mem.w.choice + theme(plot.margin = margin(1,1,0.1,1, "cm")), 
+                      p.mem.w.rt, 
+                      nrow = 2, labels = c("C", "D"), 
+                      common.legend = TRUE, legend="bottom", align = "v",
+                      font.label = list(size = 20, color = "black", face = "bold", family = NULL, position = "top")) 
+
+p.word.m
+
+p.word = ggarrange(p.word.v, p.word.m, ncol = 2)                 # Labels of the scatter plot) 
+p.word
+
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/word_choice_m_half_label1.png', plot = p.word, width = 9, height = 6, units = 'in')
+```
+
+
+
+
+```{r}
+p.word.v = grid.arrange(p.w, p.rt.w.v, nrow=2)
+p.word.m = grid.arrange(p.mem.w.choice, p.mem.w.rt, nrow=2)
+p.word = grid.arrange(p.word.v, p.word.m, ncol = 2)
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/word_choice_m_half.png', plot = p.word, width = 8, height = 6, units = 'in')
+```
+
+
+## Supplement  
+### Variances of delta memorability and delta value 
+```{r, warning = FALSE}
+#plot abs delta mem
+choice %>% ggplot(aes(x = abs.mem, fill=..count..))+
+  geom_histogram(binwidth = 0.05)+
+  theme_classic()+
+  xlim(0,1)+
+  ggtitle('Distirbution of Delta Memorbaility')+
+  xlab('Delta Memorability')
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/delta_mem_image.png', width = 8, height = 6, units = 'in')
+
+## plot the abs delta mem for words
+choice.w %>% ggplot(aes(x = abs.mem, fill=..count..))+
+  geom_histogram(binwidth = 0.05)+
+  theme_classic()+
+  xlim(0,1)+
+  ggtitle('Distirbution of Delta Memorbaility')+
+  xlab('Delta Memorability')
+ggsave('C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/delta_mem_word.png', width = 8, height = 6, units = 'in')
+``` 
+
+### Correlation Matrix
+
+Plot for correlation matrix between 17 ratings and memorability.
+
+```{r corrMatrix, out.width = "600px", message = FALSE}
+rdat = food %>% dplyr::select(stimulus, choice.rating, starts_with("rating"))
+colnames(rdat) = sub("rating[.]", "", colnames(rdat))
+colnames(rdat) = sub("[.]rating", "", colnames(rdat))
+
+rmat = as.matrix(rdat[,-1])
+rownames(rmat) = rdat$stimulus
+rmat.nochoice = rmat[,-1]
+
+new.ord = c("tasty", "othertasty", "feel", "texture", "disgusting", "familiar", "filling", "healthy", "sweetsaltysavory", "calories", "carbohydrates", "fat", "vitamins", "gluten", "sodium", "sugar", "protein", "stimulus")
+
+
+# correlation matrix with memorability score
+ave.mat.r = rdat[,new.ord] %>% 
+  group_by(stimulus) %>% 
+  summarise_all(mean) 
+# matching memorability stimulus name to food data stimulus name
+ave.mat.r = data.frame(memorability = mem$Memorability, mem.stimulus = mem$X, rep = mem$rep.z, DNN = mem$ResMem, HR = mem$HR.x, ave.mat.r)
+
+M.mem = ave.mat.r %>% dplyr::select(-mem.stimulus, -stimulus) %>% cor()
+diag(M.mem) = 0
+png(height=800, width=800, file="C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/corr_m.png", type = "cairo")
+corrplot(M.mem, method="circle", diag = F, #order="hclust", 
+         #is.corr=F, cl.lim=c(-0.85,0.85), 
+         col=rev(colorRampPalette(brewer.pal(n=11, name="RdBu"))(256)),
+         tl.col='black',
+         #tl.cex=1.2,
+         addCoef.col="grey35",
+         type = "upper")
+
+dev.off()
+
+knitr::include_graphics("C:/Users/Christine/Box Sync/data/mem_dm_all_results/visualization/corr_m.png")
+```
+
+### Table of corresponding images and words
